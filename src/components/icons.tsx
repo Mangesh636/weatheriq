@@ -4,7 +4,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 
 type IconProps = ComponentProps<typeof HugeiconsIcon>;
 
-export function Icons({
+export function Icon({
   size = 24,
   color = "currentColor",
   strokeWidth = 1.5,
