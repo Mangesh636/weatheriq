@@ -11,13 +11,11 @@ export function Icon({
   ...rest
 }: IconProps) {
   return (
-    <>
-      <HugeiconsIcon
-        size={size}
-        color={color}
-        strokeWidth={strokeWidth}
-        {...rest}
-      />
-    </>
+    <HugeiconsIcon
+      size={size}
+      color={color}
+      strokeWidth={strokeWidth}
+      {...rest}
+    />
   );
 }
