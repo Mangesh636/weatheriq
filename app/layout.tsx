@@ -10,6 +10,9 @@ export const metadata: Metadata = {
   },
   description:
     "WeatherIQ is a fast, modern weather dashboard providing real-time conditions, hourly forecasts, 7-day outlooks, air quality, and alerts — powered by reliable global data.",
+    icons: {
+      icon: "/logo.svg",
+    }
 };
 
 export default function RootLayout({
@@ -20,7 +23,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${NotoSansFont.variable} ${NotoSerifFont.variable} antialiased text-base font-normal`}
+        className={`${NotoSansFont.variable} ${NotoSerifFont.variable} antialiased text-base font-normal font-noto-sans`}
       >
         {children}
       </body>
