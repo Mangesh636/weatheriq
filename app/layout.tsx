@@ -10,6 +10,9 @@ export const metadata: Metadata = {
   },
   description:
     "WeatherIQ is a fast, modern weather dashboard providing real-time conditions, hourly forecasts, 7-day outlooks, air quality, and alerts — powered by reliable global data.",
+    icons: {
+      icon: "/logo.svg",
+    }
 };
 
 export default function RootLayout({
