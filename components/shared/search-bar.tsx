@@ -2,13 +2,15 @@
 
 import { useEffect, useState } from "react";
 
+import { z } from "zod";
+import Flag from "react-world-flags";
 import {
   ArrowTurnBackwardIcon,
   MapsSearchIcon,
+  RepeatFreeIcons,
   Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import Flag from "react-world-flags";
 
 import {
   Dialog,
@@ -35,105 +37,62 @@ import {
 import { Kbd } from "@/components/ui/kbd";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { CitySchema, GeocodingResponseSchema } from "@/schemas/geocoding";
+import { Button } from "@/components/ui/button";
+import { useDebounce } from "@/hooks/use-debounce";
+import { getRecentSearches, saveRecentSearches } from "@/lib/indexedDB";
+import { useRouter } from "next/navigation";
 
-const locationData = [
-  {
-    id: 1259229,
-    country_code: "IN",
-    city: "Pune",
-    state: "Maharashtra",
-    lat: 18.51957,
-    lag: 73.85535,
-    elevation: 554.0,
-  },
-  {
-    id: 1944337,
-    country_code: "TL",
-    city: "Pune",
-    state: "Oecusse",
-    lat: -9.36944,
-    lag: 124.31722,
-    elevation: 330.0,
-  },
-  {
-    id: 3391144,
-    country_code: "BR",
-    city: "Pune",
-    state: "Pará",
-    lat: 1.96667,
-    lag: -54.91667,
-    elevation: 352.0,
-  },
-  {
-    id: 120807,
-    country_code: "IR",
-    city: "Pūnel",
-    state: "Gilan Province",
-    lat: 37.53305,
-    lag: 49.11652,
-    elevation: 47.0,
-  },
-  {
-    id: 504142,
-    country_code: "RU",
-    city: "Punem",
-    state: "Udmurtiya Republic",
-    lat: 56.69193,
-    lag: 52.3785,
-    elevation: 158.0,
-  },
-  {
-    id: 6408696,
-    country_code: "ID",
-    city: "Punen",
-    state: "East Java",
-    lat: -7.54917,
-    lag: 111.20167,
-    elevation: 831.0,
-  },
-  {
-    id: 6695057,
-    country_code: "FR",
-    city: "Punel",
-    state: "Brittany",
-    lat: 48.4571,
-    lag: -5.08397,
-    elevation: 28.0,
-  },
-  {
-    id: 6744526,
-    country_code: "ID",
-    city: "Punen",
-    state: "Central Java",
-    lat: -6.7072,
-    lag: 110.8396,
-    elevation: 181.0,
-  },
-  {
-    id: 8650286,
-    country_code: "PE",
-    city: "Punen",
-    state: "Ayacucho",
-    lat: -12.71384,
-    lag: -74.29244,
-    elevation: 3711.0,
-  },
-  {
-    id: 2985058,
-    country_code: "FR",
-    city: "Punerot",
-    state: "Grand Est",
-    lat: 48.48084,
-    lag: 5.80841,
-    elevation: 295.0,
-  },
-];
+type SearchBarProps = {
+  cityName?: string;
+}
 
-export const SearchBar = () => {
+export const SearchBar = ({ cityName }: SearchBarProps) => {
+  const router = useRouter();
   // State to control the dialog open/close
   const [dialogOpen, setDialogOpen] = useState(false);
   // State to hold the search query
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(cityName ||"");
+  // Debounced query to limit API calls
+  const debouncedQuery = useDebounce(query, 300);
+  // State to hold recent searches
+  const [recentSearches, setRecentSearches] = useState<
+    z.infer<typeof CitySchema>[]
+  >([]);
+  // Helper to check if a city is in recent searches
+  const isCityInRecent = (cityId: number) => {
+    return recentSearches.some((c) => c.id === cityId);
+  };
+
+  // Load recent searches from IndexedDB on component mount
+  useEffect(() => {
+    if (!("indexedDB" in window)) return;
+
+    getRecentSearches()
+      .then((results) => setRecentSearches(results))
+      .catch(console.error);
+  }, []);
+
+  const handleCitySelect = async (city: z.infer<typeof CitySchema>) => {
+    // Navigate to the city's page
+    router.push(`/?city=${city.city_name}`);
+
+    // Update recent searches
+    const updated = [
+      city,
+      ...recentSearches.filter((c) => c.id !== city.id),
+    ].slice(0, 5);
+    setRecentSearches(updated);
+    await saveRecentSearches(updated);
+
+    setDialogOpen(false);
+    setQuery("");
+  };
+
+  // State to hold search results
+  const [searchResults, setSearchResults] = useState<
+    z.infer<typeof CitySchema>[]
+  >([]);
 
   //   Keyboard shortcut handler to open/close the search dialog
   useEffect(() => {
@@ -149,6 +108,43 @@ export const SearchBar = () => {
       document.removeEventListener("keydown", downHandler);
     };
   }, []);
+
+  //
+  useEffect(() => {
+    if (!debouncedQuery.trim()) return;
+
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    const fetchLocations = async () => {
+      try {
+        const response = await fetch(`/api/search?name=${debouncedQuery}`, {
+          signal,
+        });
+        const data = await response.json();
+
+        // Validate and set search results
+        const parsedResults = GeocodingResponseSchema.safeParse(data);
+        console.log(parsedResults);
+
+        if (!parsedResults.success || !parsedResults.data.results) {
+          setSearchResults([]);
+          return;
+        }
+        setSearchResults(parsedResults.data.results);
+      } catch (error) {
+        if ((error as Error).name !== "AbortError") {
+          console.error("Search Api Error:", error);
+          setSearchResults([]);
+        }
+      }
+    };
+
+    fetchLocations();
+    return () => controller.abort();
+  }, [debouncedQuery]);
+
+  const displayResults = query.trim() ? searchResults : recentSearches;
 
   return (
     <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -175,6 +171,8 @@ export const SearchBar = () => {
           {/* Search Input */}
           <InputGroup>
             <InputGroupInput
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
               placeholder="Search for a city..."
               className="md:block"
             />
@@ -185,21 +183,22 @@ export const SearchBar = () => {
         </DialogHeader>
         <Separator className={""} />
         {/* Search Results */}
-        {query && (
-          <ScrollArea className="h-75 w-full">
-            <div className="flex flex-col gap-4 ">
-              {locationData.map((index) => (
+        {displayResults.length > 0 ? (
+          <ScrollArea className="max-h-75 w-full">
+            <div className="flex flex-col gap-4">
+              {displayResults.map((city) => (
                 <div
-                  key={index.id}
+                  key={city.id}
                   className="flex flex-row gap-2 bg-muted px-3 py-2 rounded-xl cursor-pointer hover:bg-accent/50"
+                  onClick={() => handleCitySelect(city)}
                 >
                   {/* Country Flag */}
                   <div className="relative flex size-8 shrink-0 overflow-hidden rounded-full self-center mr-1.5">
                     <Flag
-                      code={index.country_code}
+                      code={city.country_code}
                       fallback={
                         <span className="bg-muted flex size-full items-center justify-center rounded-full font-noto-serif">
-                          {index.country_code}
+                          {city.country_code}
                         </span>
                       }
                       className="aspect-square size-8 object-cover"
@@ -207,29 +206,43 @@ export const SearchBar = () => {
                   </div>
                   {/* City and State */}
                   <div className="flex flex-col left-0.5">
-                    <span className="font-noto-serif">{index.city}</span>
+                    <span className="font-noto-serif">{city.city_name}</span>
                     <span className="text-sm text-muted-foreground">
-                      {index.state} ({index.lat.toFixed(2)}&deg;N{" "}
-                      {index.lag.toFixed(2)}&deg;E {index.elevation}m)
+                      {city.state_name} ({city.latitude.toFixed(2)}&deg;N{" "}
+                      {city.longitude.toFixed(2)}&deg;E {city.elevation}m)
                     </span>
                   </div>
+                  {isCityInRecent(city.id) && (
+                    <Button
+                      variant={"outline"}
+                      size={"icon"}
+                      className="ml-auto shrink-0 self-center cursor-pointer"
+                    >
+                      <HugeiconsIcon icon={RepeatFreeIcons} strokeWidth={2} />
+                    </Button>
+                  )}
                 </div>
               ))}
             </div>
           </ScrollArea>
+        ) : (
+          <Empty className="border from-muted/50 to-background h-full bg-linear-to-b from-30%">
+            {/* No Results Found */}
+            <EmptyHeader>
+              <EmptyMedia variant={"icon"}>
+                <HugeiconsIcon icon={MapsSearchIcon} strokeWidth={2} />
+              </EmptyMedia>
+              <EmptyTitle className="font-noto-serif">
+                {query ? "No results found" : "No recent searches"}
+              </EmptyTitle>
+              <EmptyDescription>
+                {query
+                  ? "Try with a different city name."
+                  : "Start typing to see results."}
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         )}
-        {/* No Results Found */}
-        <Empty className="border from-muted/50 to-background h-full bg-linear-to-b from-30%">
-          <EmptyHeader>
-            <EmptyMedia variant={"icon"}>
-              <HugeiconsIcon icon={MapsSearchIcon} strokeWidth={2} />
-            </EmptyMedia>
-            <EmptyTitle className="font-noto-serif">
-              No locations found
-            </EmptyTitle>
-            <EmptyDescription>Try with a different city name.</EmptyDescription>
-          </EmptyHeader>
-        </Empty>
         {/* Dialog Close Button */}
         <DialogFooter className="inline-block bg-muted -mx-6 -mb-6 px-6 py-4 rounded-b-4xl">
           <DialogClose
